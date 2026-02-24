@@ -228,4 +228,101 @@
 
     function updateHeader() {
       if (isCheckMode) {
-        headerTitle.textContent
+        headerTitle.textContent = '📦 消込モード';
+        headerSub.textContent = '長押しで削除 / タップで✓';
+      } else {
+        headerTitle.textContent = '📝 登録モード';
+        headerSub.textContent = 'タップでカウントUP / 長押しで削除';
+      }
+    }
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      if (appData.currentIndex > 0) { appData.currentIndex--; renderPhoto(); }
+    });
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      if (appData.currentIndex < appData.photos.length - 1) { appData.currentIndex++; renderPhoto(); }
+    });
+    document.getElementById('addPhotoBtn').addEventListener('click', openCamera);
+
+    modeBtn.addEventListener('click', () => {
+      isCheckMode = !isCheckMode;
+      modeBtn.style.background = isCheckMode ? 'var(--cyan)' : '#fff';
+      modeBtn.textContent = isCheckMode ? '✅ 登録モードへ戻る' : '📦 消込モードへ';
+      updateHeader();
+    });
+
+    // 背景タップ時（バッジ追加）
+    touchArea.addEventListener('pointerdown', (e) => {
+      if (isCheckMode || e.target !== touchArea) return;
+
+      const currentPhoto = appData.photos[appData.currentIndex];
+      
+      // 重なり防止の距離チェック
+      const isTooClose = currentPhoto.badges.some(b => {
+        const dx = b.x - e.clientX;
+        const dy = b.y - e.clientY;
+        return Math.sqrt(dx*dx + dy*dy) < MIN_DISTANCE;
+      });
+
+      if (isTooClose) return; // 近すぎる場合は作成をキャンセル
+
+      const newBadge = { id: Date.now(), x: e.clientX, y: e.clientY, count: 1, checked: false };
+      currentPhoto.badges.push(newBadge);
+      saveData();
+      createBadgeElement(newBadge);
+    });
+
+    function createBadgeElement(badgeData) {
+      const badge = document.createElement('div');
+      badge.className = `badge ${badgeData.checked ? 'checked' : ''}`;
+      badge.style.left = badgeData.x + 'px';
+      badge.style.top = badgeData.y + 'px';
+      badge.textContent = badgeData.checked ? '✓' : badgeData.count;
+
+      let pressTimer;
+      let isLongPress = false;
+
+      badge.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); // デフォルトの挙動をさらにブロック
+        isLongPress = false;
+        pressTimer = setTimeout(() => {
+          isLongPress = true;
+          if(confirm('このバッジを削除しますか？')){
+            const currentPhoto = appData.photos[appData.currentIndex];
+            currentPhoto.badges = currentPhoto.badges.filter(b => b.id !== badgeData.id);
+            saveData();
+            badge.remove();
+          }
+        }, 500); // 削除の判定を少し早くしたわ
+      });
+
+      badge.addEventListener('pointerup', (e) => {
+        clearTimeout(pressTimer);
+        if (!isLongPress) {
+          e.stopPropagation();
+          const currentPhoto = appData.photos[appData.currentIndex];
+          const targetBadge = currentPhoto.badges.find(b => b.id === badgeData.id);
+          if(!targetBadge) return;
+
+          if (isCheckMode) {
+            targetBadge.checked = !targetBadge.checked;
+            badge.classList.toggle('checked');
+            badge.textContent = targetBadge.checked ? '✓' : targetBadge.count;
+          } else {
+            targetBadge.count = targetBadge.count >= 7 ? 1 : targetBadge.count + 1;
+            badge.textContent = targetBadge.count;
+          }
+          saveData();
+        }
+      });
+
+      badge.addEventListener('pointerleave', () => clearTimeout(pressTimer));
+      badge.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+
+      touchArea.appendChild(badge);
+    }
+
+    init();
+  </script>
+</body>
+</html>
