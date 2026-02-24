@@ -5,51 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>品出しチェッカー</title>
   <style>
-    :root { --magenta: #e81cff; --cyan: #00f0ff; --dark: #111; }
-
     *, *::before, *::after {
       box-sizing: border-box; margin: 0; padding: 0;
       -webkit-user-select: none; user-select: none;
       -webkit-touch-callout: none;
       -webkit-tap-highlight-color: transparent;
     }
-
     html, body {
       width: 100%; height: 100%; overflow: hidden;
       background: #000; color: #fff;
       font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    }
+
+    #main-canvas {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
       touch-action: none;
     }
 
-    /* ======= レイヤー構成 ======= */
-    #layer-video,
-    #layer-photo,
-    #layer-touch {
+    #camera-video {
       position: fixed; inset: 0;
       width: 100%; height: 100%;
-    }
-
-    #layer-video {
+      object-fit: cover;
+      display: none;
       z-index: 1;
-      object-fit: cover;
-      display: none;
     }
 
-    #layer-photo {
-      z-index: 2;
-      object-fit: cover;
-      filter: brightness(0.85);
-      display: none;
-      /* iOSで画像長押しを完全防止 */
-      pointer-events: none;
-    }
-
-    #layer-touch {
-      z-index: 3;
-      display: none;
-    }
-
-    /* ======= ヘッダー ======= */
     #header {
       position: fixed; top: 0; left: 0; right: 0;
       z-index: 10;
@@ -61,133 +43,126 @@
     #header h1 { font-size: 18px; font-weight: 900; }
     #header p  { font-size: 12px; color: #ccc; margin-top: 4px; }
 
-    /* ======= バッジ ======= */
-    .badge {
-      position: fixed;
-      width: 52px; height: 52px;
-      border-radius: 50%;
-      background: var(--magenta);
-      color: #fff;
-      border: 3px solid #fff;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 22px; font-weight: 900;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.7);
-      z-index: 5;
-      transform: translate(-50%, -50%);
-      cursor: pointer;
-      transition: transform 0.08s;
-    }
-    .badge.active { transform: translate(-50%, -50%) scale(0.88); }
-    .badge.checked { background: #4ade80; color: #064e3b; }
-
-    /* ======= ボトムバー ======= */
-    #bottom-bar {
+    #bottom-bar, #ctrl-camera {
       position: fixed; bottom: 0; left: 0; right: 0;
       z-index: 10;
       padding: 48px 12px 28px;
       background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-      display: none;
       flex-direction: column;
       gap: 10px;
+      display: none;
     }
-    .row { display: flex; gap: 10px; }
+    .row { display: flex; gap: 10px; align-items: center; }
     .btn {
       flex: 1; padding: 15px 8px;
       border: none; border-radius: 14px;
       font-size: 14px; font-weight: 900;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       -webkit-appearance: none;
     }
-    .btn-white  { background: #fff; color: #111; }
-    .btn-dark   { background: #2a2a2a; color: #fff; }
-    .btn-cyan   { background: var(--cyan); color: #111; }
-    .btn-red    { background: #ef4444; color: #fff; }
-    .btn-green  { background: #4ade80; color: #064e3b; }
-
-    /* ======= カメラコントロール ======= */
-    #ctrl-camera {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      z-index: 10;
-      padding: 48px 12px 28px;
-      background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-      display: none;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    /* ======= ページインジケーター ======= */
+    .btn-white { background: #fff; color: #111; }
+    .btn-dark  { background: #2a2a2a; color: #fff; }
+    .btn-cyan  { background: #00f0ff; color: #111; }
+    .btn-red   { background: #ef4444; color: #fff; }
+    .btn-green { background: #4ade80; color: #064e3b; }
     #page-indicator {
-      align-self: center;
-      font-size: 14px; font-weight: bold;
-      color: #fff; min-width: 60px; text-align: center;
+      color: #fff; font-size: 14px; font-weight: bold;
+      min-width: 60px; text-align: center;
     }
   </style>
 </head>
 <body>
 
-  <!-- レイヤー -->
-  <video id="layer-video" autoplay muted playsinline></video>
-  <img id="layer-photo" src="" alt="">
-  <div id="layer-touch"></div>
+<canvas id="main-canvas"></canvas>
+<video id="camera-video" autoplay muted playsinline></video>
 
-  <!-- ヘッダー -->
-  <div id="header">
-    <h1 id="h-title">📸 売り場チェック</h1>
-    <p id="h-sub">カメラを起動して棚を撮影してください</p>
-  </div>
+<div id="header">
+  <h1 id="h-title">📸 売り場チェック</h1>
+  <p id="h-sub">カメラを起動して棚を撮影してください</p>
+</div>
 
-  <!-- カメラコントロール -->
-  <div id="ctrl-camera">
-    <div class="row">
-      <button class="btn btn-red" id="btn-cancel">✖ キャンセル</button>
-      <button class="btn btn-white" id="btn-shutter">⭕️ 撮影する</button>
-    </div>
+<div id="ctrl-camera">
+  <div class="row">
+    <button class="btn btn-red"   id="btn-cancel">✖ キャンセル</button>
+    <button class="btn btn-white" id="btn-shutter">⭕️ 撮影する</button>
   </div>
+</div>
 
-  <!-- 写真コントロール -->
-  <div id="bottom-bar">
-    <div class="row">
-      <button class="btn btn-dark" id="btn-prev">◀ 前の棚</button>
-      <span id="page-indicator">1 / 1</span>
-      <button class="btn btn-dark" id="btn-next">次の棚 ▶</button>
-    </div>
-    <div class="row">
-      <button class="btn btn-white" id="btn-mode">📦 消込モードへ</button>
-      <button class="btn btn-cyan"  id="btn-add-photo">📸 次の棚を撮る</button>
-    </div>
-    <div class="row">
-      <button class="btn btn-red" id="btn-reset">🗑️ 全データリセット</button>
-    </div>
+<div id="bottom-bar">
+  <div class="row">
+    <button class="btn btn-dark" id="btn-prev">◀ 前の棚</button>
+    <span id="page-indicator">1 / 1</span>
+    <button class="btn btn-dark" id="btn-next">次の棚 ▶</button>
   </div>
+  <div class="row">
+    <button class="btn btn-white" id="btn-mode">📦 消込モードへ</button>
+    <button class="btn btn-cyan"  id="btn-add">📸 次の棚を撮る</button>
+  </div>
+  <div class="row">
+    <button class="btn btn-red" id="btn-reset">🗑️ 全データリセット</button>
+  </div>
+</div>
 
 <script>
-/* =========================================================
-   定数 & 状態
-========================================================= */
-const STORAGE_KEY = 'shinadashi_v2'; // v2にして旧データ競合を回避
-const MIN_DIST    = 55; // バッジ重なり防止距離(px)
+const STORAGE_KEY = 'shinadashi_v3';
+const BADGE_R     = 26;
+const MIN_DIST    = 55;
 
-let stream      = null;
-let isCheckMode = false;
+const canvas = document.getElementById('main-canvas');
+const ctx    = canvas.getContext('2d');
+const video  = document.getElementById('camera-video');
+
 let data        = { photos: [], currentIndex: -1 };
+let isCheckMode = false;
+let stream      = null;
+let bgImage     = null;
 
-/* =========================================================
-   要素
-========================================================= */
-const layerVideo  = document.getElementById('layer-video');
-const layerPhoto  = document.getElementById('layer-photo');
-const layerTouch  = document.getElementById('layer-touch');
-const hTitle      = document.getElementById('h-title');
-const hSub        = document.getElementById('h-sub');
-const ctrlCamera  = document.getElementById('ctrl-camera');
-const bottomBar   = document.getElementById('bottom-bar');
-const pageInd     = document.getElementById('page-indicator');
-const btnMode     = document.getElementById('btn-mode');
+/* --- canvas リサイズ --- */
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  redraw();
+}
+window.addEventListener('resize', resizeCanvas);
 
-/* =========================================================
-   ユーティリティ
-========================================================= */
+/* --- 描画 --- */
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!bgImage) return;
+
+  const iw = bgImage.naturalWidth, ih = bgImage.naturalHeight;
+  const cw = canvas.width, ch = canvas.height;
+  const scale = Math.max(cw / iw, ch / ih);
+  const dw = iw * scale, dh = ih * scale;
+  const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.drawImage(bgImage, dx, dy, dw, dh);
+  ctx.restore();
+
+  const photo = data.photos[data.currentIndex];
+  if (photo) photo.badges.forEach(b => drawBadge(b));
+}
+
+function drawBadge(b) {
+  const x = b.x, y = b.y, r = BADGE_R;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle   = b.checked ? '#4ade80' : '#e81cff';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 3;
+  ctx.stroke();
+
+  ctx.font         = `900 ${r}px -apple-system, sans-serif`;
+  ctx.fillStyle    = b.checked ? '#064e3b' : '#fff';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(b.checked ? '✓' : String(b.count), x, y + 1);
+}
+
+/* --- 保存・読込 --- */
 function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
   catch(e) { alert('保存容量がいっぱいです。リセットしてください。'); }
@@ -198,73 +173,76 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const parsed = JSON.parse(raw);
-    // 必須フィールド検証
-    if (!Array.isArray(parsed.photos)) return false;
+    if (!Array.isArray(parsed.photos) || parsed.photos.length === 0) return false;
     data = parsed;
-    return data.photos.length > 0;
+    return true;
   } catch(e) {
     localStorage.removeItem(STORAGE_KEY);
     return false;
   }
 }
 
-/* =========================================================
-   起動
-========================================================= */
-function init() {
-  // コンテキストメニュー封印
-  document.addEventListener('contextmenu', e => e.preventDefault());
+/* --- 写真表示 --- */
+function showPhoto() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
 
-  if (load()) {
-    data.currentIndex = data.photos.length - 1;
-    showPhoto();
-  } else {
-    data = { photos: [], currentIndex: -1 };
-    openCamera();
-  }
+  const photo = data.photos[data.currentIndex];
+  bgImage = new Image();
+  bgImage.onload = redraw;
+  bgImage.src = photo.image;
+
+  document.getElementById('page-indicator').textContent =
+    `${data.currentIndex + 1} / ${data.photos.length}`;
+  document.getElementById('bottom-bar').style.display = 'flex';
+  document.getElementById('ctrl-camera').style.display = 'none';
+  updateHeader();
 }
 
-/* =========================================================
-   カメラ
-========================================================= */
+function updateHeader() {
+  document.getElementById('h-title').textContent =
+    isCheckMode ? '📦 消込モード' : '📝 登録モード';
+  document.getElementById('h-sub').textContent =
+    isCheckMode ? 'タップで✓ / 長押しで削除' : 'タップでカウントUP / 長押しで削除';
+}
+
+/* --- カメラ --- */
 async function openCamera() {
-  layerPhoto.style.display = 'none';
-  layerTouch.style.display = 'none';
-  bottomBar.style.display  = 'none';
-  layerVideo.style.display = 'block';
-  ctrlCamera.style.display = 'flex';
-  hTitle.textContent = '📸 撮影モード';
-  hSub.textContent   = '商品棚を正面から撮影してください';
+  bgImage = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  video.style.display = 'block';
+  document.getElementById('ctrl-camera').style.display = 'flex';
+  document.getElementById('bottom-bar').style.display = 'none';
+  document.getElementById('h-title').textContent = '📸 撮影モード';
+  document.getElementById('h-sub').textContent   = '商品棚を正面から撮影してください';
 
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false
+      video: { facingMode: { ideal: 'environment' } }, audio: false
     });
-    layerVideo.srcObject = stream;
+    video.srcObject = stream;
   } catch(e) {
-    alert('カメラの起動に失敗しました。ブラウザの許可設定を確認してください。');
+    alert('カメラの起動に失敗しました。');
   }
 }
 
 function stopCamera() {
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  layerVideo.style.display = 'none';
-  layerVideo.srcObject = null;
-  ctrlCamera.style.display = 'none';
+  video.style.display = 'none';
+  video.srcObject = null;
+  document.getElementById('ctrl-camera').style.display = 'none';
 }
 
 document.getElementById('btn-shutter').addEventListener('click', () => {
   const MAX = 1280;
-  let w = layerVideo.videoWidth  || 640;
-  let h = layerVideo.videoHeight || 480;
+  let w = video.videoWidth || 640, h = video.videoHeight || 480;
   if (w > MAX || h > MAX) {
     if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
     else       { w = Math.round(w * MAX / h); h = MAX; }
   }
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
-  cv.getContext('2d').drawImage(layerVideo, 0, 0, w, h);
+  cv.getContext('2d').drawImage(video, 0, 0, w, h);
   const img64 = cv.toDataURL('image/jpeg', 0.82);
 
   data.photos.push({ id: Date.now(), image: img64, badges: [] });
@@ -276,215 +254,139 @@ document.getElementById('btn-shutter').addEventListener('click', () => {
 
 document.getElementById('btn-cancel').addEventListener('click', () => {
   if (data.photos.length > 0) { stopCamera(); showPhoto(); }
-  else { alert('データがありません。撮影してください。'); }
+  else alert('データがありません。撮影してください。');
 });
 
-/* =========================================================
-   写真表示
-========================================================= */
-function showPhoto() {
-  const photo = data.photos[data.currentIndex];
-  layerTouch.innerHTML = '';
-
-  layerPhoto.src = photo.image;
-  layerPhoto.style.display = 'block';
-  layerTouch.style.display = 'block';
-  bottomBar.style.display  = 'flex';
-
-  pageInd.textContent = `${data.currentIndex + 1} / ${data.photos.length}`;
-  updateHeader();
-  photo.badges.forEach(b => mountBadge(b));
-}
-
-function updateHeader() {
-  if (isCheckMode) {
-    hTitle.textContent = '📦 消込モード';
-    hSub.textContent   = 'タップで✓ / 長押しで削除';
-  } else {
-    hTitle.textContent = '📝 登録モード';
-    hSub.textContent   = 'タップでカウントUP / 長押しで削除';
-  }
-}
-
-/* =========================================================
-   ページ送り
-========================================================= */
 document.getElementById('btn-prev').addEventListener('click', () => {
   if (data.currentIndex > 0) { data.currentIndex--; showPhoto(); }
 });
 document.getElementById('btn-next').addEventListener('click', () => {
   if (data.currentIndex < data.photos.length - 1) { data.currentIndex++; showPhoto(); }
 });
-document.getElementById('btn-add-photo').addEventListener('click', openCamera);
-
+document.getElementById('btn-add').addEventListener('click', openCamera);
 document.getElementById('btn-reset').addEventListener('click', () => {
   if (confirm('すべてのデータを消去しますか？')) {
     localStorage.removeItem(STORAGE_KEY);
     data = { photos: [], currentIndex: -1 };
+    bgImage = null;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     openCamera();
   }
 });
 
-/* =========================================================
-   モード切替
-========================================================= */
+const btnMode = document.getElementById('btn-mode');
 btnMode.addEventListener('click', () => {
   isCheckMode = !isCheckMode;
-  btnMode.className = isCheckMode ? 'btn btn-green' : 'btn btn-white';
+  btnMode.className   = isCheckMode ? 'btn btn-green' : 'btn btn-white';
   btnMode.textContent = isCheckMode ? '✅ 登録モードへ戻る' : '📦 消込モードへ';
   updateHeader();
-  // 消込状態をUIに反映
-  document.querySelectorAll('.badge').forEach(el => {
-    const id = Number(el.dataset.id);
-    const photo = data.photos[data.currentIndex];
-    const b = photo.badges.find(x => x.id === id);
-    if (b) {
-      el.classList.toggle('checked', !!b.checked);
-      el.textContent = b.checked ? '✓' : b.count;
-    }
-  });
+  redraw();
 });
 
-/* =========================================================
-   バッジ設置（touchAreaタップ）
-   ポイント：touchend で座標を取得し、clickは使わない
-========================================================= */
-let touchStartPos = null;
+/* ==============================================
+   タッチ処理（canvas一本化・clickイベント不使用）
+============================================== */
+let touchStart     = null;
+let longPressTimer = null;
 
-layerTouch.addEventListener('touchstart', e => {
-  if (e.target !== layerTouch) return;
-  touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-}, { passive: true });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  touchStart = { x: t.clientX, y: t.clientY };
 
-layerTouch.addEventListener('touchend', e => {
-  lastTouchEnd = Date.now();
-  if (isCheckMode || e.target !== layerTouch || !touchStartPos) return;
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    handleLongPress(touchStart.x, touchStart.y);
+  }, 600);
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!touchStart || !longPressTimer) return;
+  const t = e.touches[0];
+  if (Math.hypot(t.clientX - touchStart.x, t.clientY - touchStart.y) > 8) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!touchStart) return;
+
+  // longPressTimerがnullなら長押し発火済み → タップ処理しない
+  if (longPressTimer === null) {
+    touchStart = null;
+    return;
+  }
+  clearTimeout(longPressTimer);
+  longPressTimer = null;
 
   const t = e.changedTouches[0];
-  const dx = t.clientX - touchStartPos.x;
-  const dy = t.clientY - touchStartPos.y;
-  // スワイプ判定（10px以上動いたらタップ扱いしない）
-  if (Math.sqrt(dx*dx + dy*dy) > 10) return;
+  const d = Math.hypot(t.clientX - touchStart.x, t.clientY - touchStart.y);
+  touchStart = null;
 
-  const x = t.clientX, y = t.clientY;
+  if (d > 10) return;
+  handleTap(t.clientX, t.clientY);
+}, { passive: false });
+
+/* --- タップ・長押し処理 --- */
+function findBadge(x, y) {
   const photo = data.photos[data.currentIndex];
-
-  // 重なり防止
-  const tooClose = photo.badges.some(b => Math.hypot(b.x - x, b.y - y) < MIN_DIST);
-  if (tooClose) return;
-
-  const badge = { id: Date.now(), x, y, count: 1, checked: false };
-  photo.badges.push(badge);
-  save();
-  mountBadge(badge);
-}, { passive: true });
-
-// PCマウス用フォールバック（タッチデバイスでは無視）
-let lastTouchEnd = 0;
-layerTouch.addEventListener('click', e => {
-  if (isCheckMode || e.target !== layerTouch) return;
-  // タッチ後300ms以内のclickは無視（ゴーストクリック対策）
-  if (Date.now() - lastTouchEnd < 300) return;
-
-  const photo = data.photos[data.currentIndex];
-  const tooClose = photo.badges.some(b => Math.hypot(b.x - e.clientX, b.y - e.clientY) < MIN_DIST);
-  if (tooClose) return;
-
-  const badge = { id: Date.now(), x: e.clientX, y: e.clientY, count: 1, checked: false };
-  photo.badges.push(badge);
-  save();
-  mountBadge(badge);
-});
-
-/* =========================================================
-   バッジDOM生成
-========================================================= */
-function mountBadge(badgeData) {
-  const el = document.createElement('div');
-  el.className   = `badge ${badgeData.checked ? 'checked' : ''}`;
-  el.dataset.id  = badgeData.id;
-  el.style.left  = badgeData.x + 'px';
-  el.style.top   = badgeData.y + 'px';
-  el.textContent = badgeData.checked ? '✓' : badgeData.count;
-
-  /* --- 長押し削除 --- */
-  let pressTimer   = null;
-  let moved        = false;
-  let touchStarted = false;
-
-  function startLongPress() {
-    moved = false;
-    pressTimer = setTimeout(() => {
-      if (!moved && confirm('このバッジを削除しますか？')) {
-        const photo = data.photos[data.currentIndex];
-        photo.badges = photo.badges.filter(b => b.id !== badgeData.id);
-        save();
-        el.remove();
-      }
-    }, 600);
+  if (!photo) return null;
+  for (let i = photo.badges.length - 1; i >= 0; i--) {
+    if (Math.hypot(photo.badges[i].x - x, photo.badges[i].y - y) <= BADGE_R + 10)
+      return photo.badges[i];
   }
-  function cancelLongPress() { clearTimeout(pressTimer); pressTimer = null; }
+  return null;
+}
 
-  el.addEventListener('touchstart', e => {
-    e.stopPropagation();
-    touchStarted = true;
-    el.classList.add('active');
-    startLongPress();
-  }, { passive: true });
+function handleTap(x, y) {
+  if (!bgImage) return;
+  const photo = data.photos[data.currentIndex];
+  if (!photo) return;
 
-  el.addEventListener('touchmove', () => {
-    moved = true;
-    cancelLongPress();
-  }, { passive: true });
-
-  el.addEventListener('touchend', e => {
-    e.stopPropagation();
-    e.preventDefault(); // clickゴースト防止
-    el.classList.remove('active');
-    if (pressTimer) {
-      // 長押しではなかった → タップ処理
-      cancelLongPress();
-      handleBadgeTap(badgeData, el);
+  const hit = findBadge(x, y);
+  if (hit) {
+    if (isCheckMode) {
+      hit.checked = !hit.checked;
+    } else {
+      hit.count = hit.count >= 7 ? 1 : hit.count + 1;
     }
-    touchStarted = false;
-  }, { passive: true });
-
-  // マウス用
-  el.addEventListener('mousedown', e => {
-    if (touchStarted) return;
-    e.stopPropagation();
-    startLongPress();
-  });
-  el.addEventListener('mouseup', e => {
-    if (touchStarted) return;
-    e.stopPropagation();
-    if (pressTimer) { cancelLongPress(); handleBadgeTap(badgeData, el); }
-  });
-  el.addEventListener('mouseleave', () => { if (!touchStarted) cancelLongPress(); });
-
-  layerTouch.appendChild(el);
-}
-
-function handleBadgeTap(badgeData, el) {
-  const photo = data.photos[data.currentIndex];
-  const target = photo.badges.find(b => b.id === badgeData.id);
-  if (!target) return;
-
-  if (isCheckMode) {
-    target.checked = !target.checked;
-    el.classList.toggle('checked', target.checked);
-    el.textContent = target.checked ? '✓' : target.count;
-  } else {
-    target.count = target.count >= 7 ? 1 : target.count + 1;
-    el.textContent = target.count;
+    save();
+    redraw();
+  } else if (!isCheckMode) {
+    const tooClose = photo.badges.some(b => Math.hypot(b.x - x, b.y - y) < MIN_DIST);
+    if (tooClose) return;
+    photo.badges.push({ id: Date.now(), x, y, count: 1, checked: false });
+    save();
+    redraw();
   }
-  save();
 }
 
-/* =========================================================
-   起動
-========================================================= */
-init();
+function handleLongPress(x, y) {
+  const hit = findBadge(x, y);
+  if (!hit) return;
+  if (confirm('このバッジを削除しますか？')) {
+    const photo = data.photos[data.currentIndex];
+    photo.badges = photo.badges.filter(b => b.id !== hit.id);
+    save();
+    redraw();
+  }
+}
+
+/* --- 起動 --- */
+document.addEventListener('contextmenu', e => e.preventDefault());
+resizeCanvas();
+
+if (load()) {
+  data.currentIndex = data.photos.length - 1;
+  showPhoto();
+} else {
+  data = { photos: [], currentIndex: -1 };
+  openCamera();
+}
 </script>
 </body>
 </html>
