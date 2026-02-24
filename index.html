@@ -7,23 +7,19 @@
   <style>
     :root { --magenta: #e81cff; --cyan: #00f0ff; --dark: #111; }
     
-    /* 長押しメニュー・テキスト選択を完全に無効化 */
     * { 
       box-sizing: border-box; margin: 0; padding: 0; 
-      user-select: none !important; 
-      -webkit-user-select: none !important; 
-      -webkit-touch-callout: none !important; 
+      user-select: none; 
+      -webkit-user-select: none; 
+      -webkit-touch-callout: none; /* 長押しメニュー防止 */
     }
     
     body { font-family: sans-serif; background: #000; overflow: hidden; height: 100vh; color: #fff; touch-action: none; }
 
     /* カメラと写真の表示レイヤー */
-    #cameraVideo, #photoView { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+    #cameraVideo, #photoView { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
     #cameraVideo { z-index: 1; display: none; }
-    
-    /* 写真自体のタッチ判定を消してメニューを防ぐ */
-    #photoView { z-index: 2; filter: brightness(0.85); display: none; pointer-events: none; }
-    
+    #photoView { z-index: 2; filter: brightness(0.85); display: none; }
     #touchArea { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 3; display: none; }
 
     /* ヘッダー */
@@ -103,11 +99,15 @@
   </div>
 
   <script>
-    // 画面全体で右クリック（長押し）メニューを強制ブロック
-    window.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+    // ブラウザ標準の長押し（右クリック）メニューを完全に封印
+    window.oncontextmenu = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
 
     const STORAGE_KEY = 'shinadashi_data';
-    const MIN_DISTANCE = 55; // ピンが重ならないための最小距離(px)
+    const MIN_DISTANCE = 55; // ピンが重ならないための最小距離
 
     const cameraVideo = document.getElementById('cameraVideo');
     const photoView = document.getElementById('photoView');
@@ -124,13 +124,25 @@
     let isCheckMode = false;
     let appData = { photos: [], currentIndex: -1 };
 
+    // --- 起動と復旧処理 ---
     function init() {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) appData = JSON.parse(saved);
-      if (appData.photos.length > 0) {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          appData = JSON.parse(saved);
+        }
+      } catch (e) {
+        // データが壊れていた場合は自動でリセット
+        localStorage.removeItem(STORAGE_KEY);
+        appData = { photos: [], currentIndex: -1 };
+      }
+
+      // データが正常にあれば写真表示、なければカメラ起動
+      if (appData && appData.photos && appData.photos.length > 0) {
         appData.currentIndex = appData.photos.length - 1;
         renderPhoto();
       } else {
+        appData = { photos: [], currentIndex: -1 };
         openCamera();
       }
     }
@@ -139,10 +151,11 @@
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
       } catch (e) {
-        alert('保存容量がいっぱいです。不要な棚データをリセットしてください。');
+        alert('保存容量がいっぱいです。全データリセットを行ってください。');
       }
     }
 
+    // --- カメラ関連 ---
     async function openCamera() {
       photoView.style.display = 'none';
       touchArea.style.display = 'none';
@@ -170,10 +183,11 @@
     }
 
     document.getElementById('shutterBtn').addEventListener('click', () => {
-      // 画質調整（長辺を最大1280pxに制限して高画質JPEG化）
+      // 最大1280pxで高画質に撮影
       const MAX_SIZE = 1280;
-      let w = cameraVideo.videoWidth;
-      let h = cameraVideo.videoHeight;
+      let w = cameraVideo.videoWidth || 640;
+      let h = cameraVideo.videoHeight || 480;
+      
       if (w > MAX_SIZE || h > MAX_SIZE) {
         if (w > h) { h = Math.floor(h * (MAX_SIZE / w)); w = MAX_SIZE; }
         else { w = Math.floor(w * (MAX_SIZE / h)); h = MAX_SIZE; }
@@ -183,7 +197,7 @@
       canvas.width = w;
       canvas.height = h;
       canvas.getContext('2d').drawImage(cameraVideo, 0, 0, w, h);
-      const base64 = canvas.toDataURL('image/jpeg', 0.85); // 画質0.85にアップ
+      const base64 = canvas.toDataURL('image/jpeg', 0.85);
 
       const newPhoto = { id: Date.now(), image: base64, badges: [] };
       appData.photos.push(newPhoto);
@@ -204,13 +218,14 @@
     });
 
     document.getElementById('resetBtn').addEventListener('click', () => {
-      if (confirm('すべての写真とバッジのデータを完全に消去しますか？')) {
+      if (confirm('すべてのデータを完全に消去しますか？')) {
         localStorage.removeItem(STORAGE_KEY);
         appData = { photos: [], currentIndex: -1 };
         openCamera();
       }
     });
 
+    // --- 写真とバッジ描画 ---
     function renderPhoto() {
       touchArea.innerHTML = ''; 
       const currentPhoto = appData.photos[appData.currentIndex];
@@ -251,20 +266,19 @@
       updateHeader();
     });
 
-    // 背景タップ時（バッジ追加）
-    touchArea.addEventListener('pointerdown', (e) => {
+    // --- バッジ作成と操作 ---
+    touchArea.addEventListener('click', (e) => {
       if (isCheckMode || e.target !== touchArea) return;
 
       const currentPhoto = appData.photos[appData.currentIndex];
       
-      // 重なり防止の距離チェック
+      // 重なり防止
       const isTooClose = currentPhoto.badges.some(b => {
         const dx = b.x - e.clientX;
         const dy = b.y - e.clientY;
         return Math.sqrt(dx*dx + dy*dy) < MIN_DISTANCE;
       });
-
-      if (isTooClose) return; // 近すぎる場合は作成をキャンセル
+      if (isTooClose) return;
 
       const newBadge = { id: Date.now(), x: e.clientX, y: e.clientY, count: 1, checked: false };
       currentPhoto.badges.push(newBadge);
@@ -279,45 +293,44 @@
       badge.style.top = badgeData.y + 'px';
       badge.textContent = badgeData.checked ? '✓' : badgeData.count;
 
+      // 長押し削除処理（タッチとマウス両対応）
       let pressTimer;
-      let isLongPress = false;
-
-      badge.addEventListener('pointerdown', (e) => {
-        e.preventDefault(); // デフォルトの挙動をさらにブロック
-        isLongPress = false;
+      const startPress = () => {
         pressTimer = setTimeout(() => {
-          isLongPress = true;
           if(confirm('このバッジを削除しますか？')){
             const currentPhoto = appData.photos[appData.currentIndex];
             currentPhoto.badges = currentPhoto.badges.filter(b => b.id !== badgeData.id);
             saveData();
             badge.remove();
           }
-        }, 500); // 削除の判定を少し早くしたわ
-      });
+        }, 500);
+      };
+      const cancelPress = () => clearTimeout(pressTimer);
 
-      badge.addEventListener('pointerup', (e) => {
-        clearTimeout(pressTimer);
-        if (!isLongPress) {
-          e.stopPropagation();
-          const currentPhoto = appData.photos[appData.currentIndex];
-          const targetBadge = currentPhoto.badges.find(b => b.id === badgeData.id);
-          if(!targetBadge) return;
+      badge.addEventListener('touchstart', startPress, { passive: true });
+      badge.addEventListener('touchend', cancelPress, { passive: true });
+      badge.addEventListener('touchmove', cancelPress, { passive: true });
+      badge.addEventListener('mousedown', startPress);
+      badge.addEventListener('mouseup', cancelPress);
+      badge.addEventListener('mouseleave', cancelPress);
 
-          if (isCheckMode) {
-            targetBadge.checked = !targetBadge.checked;
-            badge.classList.toggle('checked');
-            badge.textContent = targetBadge.checked ? '✓' : targetBadge.count;
-          } else {
-            targetBadge.count = targetBadge.count >= 7 ? 1 : targetBadge.count + 1;
-            badge.textContent = targetBadge.count;
-          }
-          saveData();
+      // タップ処理
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const currentPhoto = appData.photos[appData.currentIndex];
+        const targetBadge = currentPhoto.badges.find(b => b.id === badgeData.id);
+        if(!targetBadge) return;
+
+        if (isCheckMode) {
+          targetBadge.checked = !targetBadge.checked;
+          badge.classList.toggle('checked');
+          badge.textContent = targetBadge.checked ? '✓' : targetBadge.count;
+        } else {
+          targetBadge.count = targetBadge.count >= 7 ? 1 : targetBadge.count + 1;
+          badge.textContent = targetBadge.count;
         }
+        saveData();
       });
-
-      badge.addEventListener('pointerleave', () => clearTimeout(pressTimer));
-      badge.addEventListener('pointercancel', () => clearTimeout(pressTimer));
 
       touchArea.appendChild(badge);
     }
