@@ -56,6 +56,15 @@
     .btn-action { background: var(--cyan); color: var(--dark); }
     .btn-alert { background: #ef4444; color: #fff; }
 
+    /* これを追加 */
+    img {
+      -webkit-touch-callout: none;
+      pointer-events: none;
+    }
+    #touchArea {
+      -webkit-touch-callout: none;
+    }
+
   </style>
 </head>
 <body>
@@ -92,6 +101,8 @@
   </div>
 
   <script>
+    // これを <script> の直後に追加
+    document.addEventListener('contextmenu', event => event.preventDefault());
     const STORAGE_KEY = 'shinadashi_data';
     const cameraVideo = document.getElementById('cameraVideo');
     const photoView = document.getElementById('photoView');
