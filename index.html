@@ -6,13 +6,24 @@
   <title>品出しチェッカー</title>
   <style>
     :root { --magenta: #e81cff; --cyan: #00f0ff; --dark: #111; }
-    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-touch-callout: none; }
+    
+    /* 長押しメニュー・テキスト選択を完全に無効化 */
+    * { 
+      box-sizing: border-box; margin: 0; padding: 0; 
+      user-select: none !important; 
+      -webkit-user-select: none !important; 
+      -webkit-touch-callout: none !important; 
+    }
+    
     body { font-family: sans-serif; background: #000; overflow: hidden; height: 100vh; color: #fff; touch-action: none; }
 
     /* カメラと写真の表示レイヤー */
     #cameraVideo, #photoView { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
     #cameraVideo { z-index: 1; display: none; }
-    #photoView { z-index: 2; filter: brightness(0.85); display: none; }
+    
+    /* 写真自体のタッチ判定を消してメニューを防ぐ */
+    #photoView { z-index: 2; filter: brightness(0.85); display: none; pointer-events: none; }
+    
     #touchArea { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 3; display: none; }
 
     /* ヘッダー */
@@ -56,15 +67,6 @@
     .btn-action { background: var(--cyan); color: var(--dark); }
     .btn-alert { background: #ef4444; color: #fff; }
 
-    /* これを追加 */
-    img {
-      -webkit-touch-callout: none;
-      pointer-events: none;
-    }
-    #touchArea {
-      -webkit-touch-callout: none;
-    }
-
   </style>
 </head>
 <body>
@@ -101,16 +103,18 @@
   </div>
 
   <script>
-    // これを <script> の直後に追加
-    document.addEventListener('contextmenu', event => event.preventDefault());
+    // 画面全体で右クリック（長押し）メニューを強制ブロック
+    window.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+
     const STORAGE_KEY = 'shinadashi_data';
+    const MIN_DISTANCE = 55; // ピンが重ならないための最小距離(px)
+
     const cameraVideo = document.getElementById('cameraVideo');
     const photoView = document.getElementById('photoView');
     const touchArea = document.getElementById('touchArea');
     const headerTitle = document.getElementById('headerTitle');
     const headerSub = document.getElementById('headerSub');
     
-    // UIコンテナ
     const controlsCamera = document.getElementById('controlsCamera');
     const controlsPhoto = document.getElementById('controlsPhoto');
     const pageIndicator = document.getElementById('pageIndicator');
@@ -118,16 +122,11 @@
 
     let stream = null;
     let isCheckMode = false;
-    
-    // データ構造: photos = [{ id: 1, image: 'base64', badges: [{id, x, y, count, checked}] }]
     let appData = { photos: [], currentIndex: -1 };
 
-    // --- 初期化 ---
     function init() {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        appData = JSON.parse(saved);
-      }
+      if (saved) appData = JSON.parse(saved);
       if (appData.photos.length > 0) {
         appData.currentIndex = appData.photos.length - 1;
         renderPhoto();
@@ -136,12 +135,14 @@
       }
     }
 
-    // --- 保存 ---
     function saveData() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+      } catch (e) {
+        alert('保存容量がいっぱいです。不要な棚データをリセットしてください。');
+      }
     }
 
-    // --- カメラ制御 ---
     async function openCamera() {
       photoView.style.display = 'none';
       touchArea.style.display = 'none';
@@ -168,14 +169,21 @@
       controlsCamera.style.display = 'none';
     }
 
-    // --- 撮影 ---
     document.getElementById('shutterBtn').addEventListener('click', () => {
-      // キャンバスに描画して軽量なBase64化
+      // 画質調整（長辺を最大1280pxに制限して高画質JPEG化）
+      const MAX_SIZE = 1280;
+      let w = cameraVideo.videoWidth;
+      let h = cameraVideo.videoHeight;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) { h = Math.floor(h * (MAX_SIZE / w)); w = MAX_SIZE; }
+        else { w = Math.floor(w * (MAX_SIZE / h)); h = MAX_SIZE; }
+      }
+
       const canvas = document.createElement('canvas');
-      canvas.width = cameraVideo.videoWidth / 2;
-      canvas.height = cameraVideo.videoHeight / 2;
-      canvas.getContext('2d').drawImage(cameraVideo, 0, 0, canvas.width, canvas.height);
-      const base64 = canvas.toDataURL('image/jpeg', 0.6);
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(cameraVideo, 0, 0, w, h);
+      const base64 = canvas.toDataURL('image/jpeg', 0.85); // 画質0.85にアップ
 
       const newPhoto = { id: Date.now(), image: base64, badges: [] };
       appData.photos.push(newPhoto);
@@ -195,7 +203,6 @@
       }
     });
 
-    // --- 全リセット ---
     document.getElementById('resetBtn').addEventListener('click', () => {
       if (confirm('すべての写真とバッジのデータを完全に消去しますか？')) {
         localStorage.removeItem(STORAGE_KEY);
@@ -204,9 +211,8 @@
       }
     });
 
-    // --- 写真とバッジの描画 ---
     function renderPhoto() {
-      touchArea.innerHTML = ''; // バッジをクリア
+      touchArea.innerHTML = ''; 
       const currentPhoto = appData.photos[appData.currentIndex];
       
       photoView.src = currentPhoto.image;
@@ -217,108 +223,9 @@
       pageIndicator.textContent = `${appData.currentIndex + 1} / ${appData.photos.length}`;
       updateHeader();
 
-      // バッジの復元
       currentPhoto.badges.forEach(b => createBadgeElement(b));
     }
 
     function updateHeader() {
       if (isCheckMode) {
-        headerTitle.textContent = '📦 消込モード';
-        headerSub.textContent = '長押しで削除 / タップで✓';
-      } else {
-        headerTitle.textContent = '📝 登録モード';
-        headerSub.textContent = 'タップでカウントUP / 長押しで削除';
-      }
-    }
-
-    // --- ナビゲーション ---
-    document.getElementById('prevBtn').addEventListener('click', () => {
-      if (appData.currentIndex > 0) {
-        appData.currentIndex--;
-        renderPhoto();
-      }
-    });
-    document.getElementById('nextBtn').addEventListener('click', () => {
-      if (appData.currentIndex < appData.photos.length - 1) {
-        appData.currentIndex++;
-        renderPhoto();
-      }
-    });
-    document.getElementById('addPhotoBtn').addEventListener('click', openCamera);
-
-    // --- モード切替 ---
-    modeBtn.addEventListener('click', () => {
-      isCheckMode = !isCheckMode;
-      modeBtn.style.background = isCheckMode ? 'var(--cyan)' : '#fff';
-      modeBtn.textContent = isCheckMode ? '✅ 登録モードへ戻る' : '📦 消込モードへ';
-      updateHeader();
-    });
-
-    // --- バッジの作成とイベント ---
-    touchArea.addEventListener('pointerdown', (e) => {
-      if (isCheckMode) return;
-      if (e.target !== touchArea) return; // バッジタップ時は新規作成しない
-
-      const currentPhoto = appData.photos[appData.currentIndex];
-      const newBadge = { id: Date.now(), x: e.clientX, y: e.clientY, count: 1, checked: false };
-      currentPhoto.badges.push(newBadge);
-      saveData();
-      createBadgeElement(newBadge);
-    });
-
-    function createBadgeElement(badgeData) {
-      const badge = document.createElement('div');
-      badge.className = `badge ${badgeData.checked ? 'checked' : ''}`;
-      badge.style.left = badgeData.x + 'px';
-      badge.style.top = badgeData.y + 'px';
-      badge.textContent = badgeData.checked ? '✓' : badgeData.count;
-
-      let pressTimer;
-      let isLongPress = false;
-
-      // タップ＆長押しの確実な判定
-      badge.addEventListener('pointerdown', (e) => {
-        isLongPress = false;
-        pressTimer = setTimeout(() => {
-          isLongPress = true;
-          if(confirm('このバッジを削除しますか？')){
-            const currentPhoto = appData.photos[appData.currentIndex];
-            currentPhoto.badges = currentPhoto.badges.filter(b => b.id !== badgeData.id);
-            saveData();
-            badge.remove();
-          }
-        }, 600);
-      });
-
-      badge.addEventListener('pointerup', (e) => {
-        clearTimeout(pressTimer);
-        // 長押しじゃなければタップ（カウントアップ / 消込）と判定
-        if (!isLongPress) {
-          e.stopPropagation();
-          const currentPhoto = appData.photos[appData.currentIndex];
-          const targetBadge = currentPhoto.badges.find(b => b.id === badgeData.id);
-
-          if (isCheckMode) {
-            targetBadge.checked = !targetBadge.checked;
-            badge.classList.toggle('checked');
-            badge.textContent = targetBadge.checked ? '✓' : targetBadge.count;
-          } else {
-            // カウントを7でループさせる
-            targetBadge.count = targetBadge.count >= 7 ? 1 : targetBadge.count + 1;
-            badge.textContent = targetBadge.count;
-          }
-          saveData();
-        }
-      });
-
-      badge.addEventListener('pointerleave', () => clearTimeout(pressTimer));
-      badge.addEventListener('pointercancel', () => clearTimeout(pressTimer));
-
-      touchArea.appendChild(badge);
-    }
-
-    // 起動
-    init();
-  </script>
-</body>
-</html>
+        headerTitle.textContent
